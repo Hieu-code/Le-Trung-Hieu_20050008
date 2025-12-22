@@ -1,0 +1,33 @@
+/* src/App.css */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Scrollbar nhỏ gọn hơn một chút */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.7) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.9);
+  border-radius: 999px;
+}
+/* Ẩn thanh cuộn nhưng vẫn cho phép cuộn */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}

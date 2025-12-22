@@ -1,0 +1,123 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Font chữ hiện đại (Nếu chưa có, trình duyệt sẽ dùng sans-serif mặc định đẹp nhất của máy) */
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Tùy chỉnh thanh cuộn (Scrollbar) cho đẹp hơn */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f5f9; 
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; 
+}
+
+/* =========================================
+   CUSTOM REACT BIG CALENDAR (GIAO DIỆN PRO)
+   ========================================= */
+.rbc-calendar {
+  font-family: inherit;
+  border: none !important;
+}
+
+/* Header của lịch (Thứ 2, Thứ 3...) */
+.rbc-header {
+  padding: 12px 0;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  border-bottom: 1px solid #e2e8f0 !important;
+  border-left: none !important;
+}
+
+/* Ô ngày hôm nay */
+.rbc-today {
+  background-color: #f0f9ff !important; /* Xanh nhạt */
+}
+
+/* Các đường kẻ lưới */
+.rbc-day-bg + .rbc-day-bg {
+  border-left: 1px solid #f1f5f9 !important;
+}
+.rbc-month-view, .rbc-time-view, .rbc-agenda-view {
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 12px;
+  overflow: hidden;
+  background: white;
+}
+
+/* Sự kiện (Event pills) */
+.rbc-event {
+  border-radius: 6px !important;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  border: none !important;
+  padding: 2px 5px !important;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+/* Nút bấm trên thanh công cụ lịch */
+.rbc-toolbar button {
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+  border-radius: 6px !important;
+  font-size: 0.875rem;
+  padding: 6px 12px !important;
+  margin-right: 4px;
+  transition: all 0.2s;
+}
+.rbc-toolbar button:hover {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+.rbc-toolbar button.rbc-active {
+  background-color: #2563eb !important; /* Màu xanh chủ đạo */
+  color: white !important;
+  border-color: #2563eb !important;
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+}
+.rbc-toolbar-label {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #1e293b;
+}
+
+/* Loại bỏ các đường viền thừa */
+.rbc-time-header-content {
+  border-left: 1px solid #e2e8f0 !important;
+}
+.rbc-timeslot-group {
+  border-bottom: 1px solid #f1f5f9 !important;
+}
+.rbc-time-content {
+  border-top: 1px solid #e2e8f0 !important;
+}
+
+/* =========================================
+   ANIMATIONS
+   ========================================= */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
