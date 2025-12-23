@@ -85,9 +85,36 @@ class AssignmentSerializer(serializers.ModelSerializer):
 
 # --- Quiz ---
 class ChoiceSerializer(serializers.ModelSerializer):
+    # cho phép gửi lên khi tạo/sửa, nhưng mặc định KHÔNG trả ra
+    is_correct = serializers.BooleanField(write_only=True, required=False)
+
     class Meta:
         model = Choice
-        fields = "__all__"
+        fields = ["id", "question", "text", "is_correct", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        req = self.context.get("request")
+
+        if not req:
+            return data
+
+        user = req.user
+        course = instance.question.quiz.course
+
+        is_teacher = (
+            user.is_superuser or getattr(user, "role", "") == "admin" or
+            course.owner_id == user.id or
+            Enrollment.objects.filter(
+                course=course, user=user, role=Enrollment.ROLE_TEACHER
+            ).exists()
+        )
+
+        if is_teacher:
+            data["is_correct"] = instance.is_correct  # chỉ teacher mới thấy
+        return data
+
 
 class QuestionSerializer(serializers.ModelSerializer):
     choices = ChoiceSerializer(many=True, read_only=True)

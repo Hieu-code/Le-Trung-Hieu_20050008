@@ -18,7 +18,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.exceptions import ValidationError
 from rest_framework.exceptions import PermissionDenied
 from .models import AttendanceSession, AttendanceRecord # <-- Thêm
-from .serializers import AttendanceSessionSerializer, AttendanceRecordSerializer # <-- Thêm
+from .serializers import AttendanceSessionSerializer, AttendanceRecordSerializer 
 from .permissions import IsOwnerOrTeacher, IsSubmissionOwnerOrTeacher, IsCourseMember
 from .models import (
     Course, Section, Lesson, Material,
@@ -88,6 +88,17 @@ def _is_course_teacher(user, course):
     return Enrollment.objects.filter(course=course, user=user, role=Enrollment.ROLE_TEACHER).exists()
 def _is_course_enrolled(user, course):
     return Enrollment.objects.filter(course=course, user=user).exists()
+def _visible_course_ids(user):
+    """
+    Danh sách course_id mà user được phép xem dữ liệu:
+    - superuser: tất cả
+    - user thường: course mình tạo hoặc course mình đã tham gia (enroll)
+    """
+    if user.is_superuser:
+        return Course.objects.values_list("id", flat=True)
+    return Course.objects.filter(
+        Q(owner=user) | Q(enrollments__user=user)
+    ).distinct().values_list("id", flat=True)
 
 # -------------------------------------------------------------------
 # Viewsets
@@ -132,7 +143,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         Enrollment.objects.create(course=course, user=request.user, role="student")
         return Response({"detail": "Tham gia thành công!", "id": course.id})
 
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], permission_classes=[permissions.IsAuthenticated, IsOwnerOrTeacher])
     def analytics(self, request, pk=None):
         course = self.get_object()
         # Check quyền
@@ -196,7 +207,7 @@ class CourseViewSet(viewsets.ModelViewSet):
             "score_chart": chart_data
         })
     
-    @action(detail=True, methods=['get'])
+    @action(detail=True, methods=['get'], permission_classes=[permissions.IsAuthenticated, IsOwnerOrTeacher])
     def grades(self, request, pk=None):
         course = self.get_object()
         if request.user != course.owner and getattr(request.user, 'role', '') != 'admin':
@@ -219,35 +230,52 @@ class CourseViewSet(viewsets.ModelViewSet):
         })
     
 class SectionViewSet(viewsets.ModelViewSet):
-    queryset = Section.objects.select_related("course").order_by("course", "order", "created_at")
     serializer_class = SectionSerializer
     permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"course": ["exact"]}
 
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Section.objects.select_related("course").filter(
+            course_id__in=visible
+        ).order_by("course", "order", "created_at")
+
 class LessonViewSet(viewsets.ModelViewSet):
-    queryset = Lesson.objects.select_related("section", "section__course").order_by("section", "order", "created_at")
     serializer_class = LessonSerializer
     permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"section": ["exact"], "section__course": ["exact"]}
 
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Lesson.objects.select_related("section", "section__course").filter(
+            section__course_id__in=visible
+        ).order_by("section", "order", "created_at")
+
 class MaterialViewSet(viewsets.ModelViewSet):
-    queryset = Material.objects.select_related("lesson", "lesson__section", "lesson__section__course").order_by("-created_at")
     serializer_class = MaterialSerializer
     permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"lesson": ["exact"], "lesson__section": ["exact"]}
 
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Material.objects.select_related(
+            "lesson", "lesson__section", "lesson__section__course"
+        ).filter(
+            lesson__section__course_id__in=visible
+        ).order_by("-created_at")
+
 class AssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = AssignmentSerializer
-    # SỬA LỖI: Dùng IsEnrolledOrOwnerReadOnly để cho phép Học sinh xem (GET)
-    permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly] 
+    permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"course": ["exact"]}
-    def get_queryset(self): 
-        # Thêm order_by để hết cảnh báo
-        return Assignment.objects.all().order_by('-created_at')
+
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Assignment.objects.filter(course_id__in=visible).order_by("-created_at")
 
     def perform_create(self, serializer):
         assignment = serializer.save()
@@ -266,9 +294,23 @@ class SubmissionViewSet(viewsets.ModelViewSet):
     filterset_fields = {"assignment": ["exact"], "owner": ["exact"]}
 
     def get_queryset(self):
-        qs = Submission.objects.all().order_by('-created_at')
-        if getattr(self.request.user, 'role', '') == 'student': return qs.filter(owner=self.request.user)
-        return qs
+        user = self.request.user
+        qs = Submission.objects.select_related(
+            "assignment", "assignment__course", "owner"
+        ).order_by("-created_at")
+
+        if user.is_superuser or getattr(user, "role", "") == "admin":
+            return qs
+
+        if getattr(user, "role", "") == "student":
+            return qs.filter(owner=user)
+
+        # teacher: chỉ khoá mình tạo hoặc mình là teacher trong Enrollment
+        return qs.filter(
+            Q(assignment__course__owner=user) |
+            Q(assignment__course__enrollments__user=user,
+            assignment__course__enrollments__role=Enrollment.ROLE_TEACHER)
+        ).distinct()
 
     def perform_create(self, serializer):
         assignment = serializer.validated_data['assignment']
@@ -322,6 +364,10 @@ class QuizViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"course": ["exact"]}
 
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Quiz.objects.filter(course_id__in=visible).order_by("-created_at")
+
     # Mở quyền cho các API nộp bài và xem điểm
     def get_permissions(self):
     # AI generate: chỉ cần đăng nhập
@@ -332,11 +378,6 @@ class QuizViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated()]
 
         return [permissions.IsAuthenticated(), IsOwnerOrTeacher()]
-
-
-    def get_queryset(self):
-        return Quiz.objects.all().order_by('-created_at')
-
     def perform_create(self, serializer):
         quiz = serializer.save(author=self.request.user)
         if quiz.is_published:
@@ -525,18 +566,28 @@ Format:
                 status=status.HTTP_400_BAD_REQUEST
             )
 class QuestionViewSet(viewsets.ModelViewSet):
-    queryset = Question.objects.select_related("quiz", "quiz__course").order_by("quiz", "order", "created_at")
     serializer_class = QuestionSerializer
     permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"quiz": ["exact"]}
 
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Question.objects.select_related("quiz", "quiz__course").filter(
+            quiz__course_id__in=visible
+        ).order_by("quiz", "order", "created_at")
+
 class ChoiceViewSet(viewsets.ModelViewSet):
-    queryset = Choice.objects.select_related("question", "question__quiz").order_by("question", "created_at")
     serializer_class = ChoiceSerializer
     permission_classes = [permissions.IsAuthenticated, IsEnrolledOrOwnerReadOnly]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"question": ["exact"]}
+
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Choice.objects.select_related("question", "question__quiz").filter(
+            question__quiz__course_id__in=visible
+        ).order_by("question", "created_at")
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
     queryset = Enrollment.objects.select_related("course", "user").order_by("-created_at")
@@ -563,10 +614,11 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = {"course": ["exact"]}
-    
-    def get_queryset(self): 
-        return Announcement.objects.all().order_by('-created_at')
-        
+
+    def get_queryset(self):
+        visible = _visible_course_ids(self.request.user)
+        return Announcement.objects.filter(course_id__in=visible).order_by("-created_at")
+
     def perform_create(self, serializer):
         # Lưu thông báo
         announcement = serializer.save(author=self.request.user)
@@ -711,7 +763,8 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     filterset_fields = {"course": ["exact"]}
 
     def get_queryset(self):
-        return AttendanceSession.objects.all().order_by('-date')
+        visible = _visible_course_ids(self.request.user)
+        return AttendanceSession.objects.filter(course_id__in=visible).order_by("-date")
 
     def perform_create(self, serializer):
         session = serializer.save()

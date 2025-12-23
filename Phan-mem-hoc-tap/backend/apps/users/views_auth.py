@@ -226,8 +226,10 @@ class UserDetailView(APIView):
 # Admin set role
 # =========================
 @api_view(["POST"])
-@permission_classes([permissions.IsAdminUser])
+@permission_classes([permissions.IsAuthenticated])
 def set_user_role(request, pk):
+    if not (request.user.is_superuser or getattr(request.user, "role", "") == "admin"):
+        return Response({"detail": "Forbidden"}, status=403)
     user = User.objects.filter(pk=pk).first()
     if not user:
         return Response({"error": "User không tồn tại"}, status=404)
